@@ -1,0 +1,57 @@
+/* =========================
+   GLOBAL DESIGN SYSTEM
+========================= */
+
+:root {
+  --bg: #0b1220;
+  --card: #111a2e;
+  --primary: #00ff88;
+  --text: #e6f1ff;
+  --muted: #8aa0b6;
+  --danger: #ff4d4d;
+  --radius: 14px;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ===== Buttons ===== */
+.btn {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #000;
+}
+
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+/* ===== Cards ===== */
+.card {
+  background: var(--card);
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+/* ===== Inputs ===== */
+input {
+  width: 100%;
+  padding: 10px;
+  margin: 6px 0;
+  border-radius: var(--radius);
+  border: 1px solid #2a3550;
+  background: #0f172a;
+  color: var(--text);
+}
