@@ -12,13 +12,18 @@ from .views import (
     VolunteerHoursReportView,
     DashboardStatisticsView,
     OrganizationsReportView,
+    ActivityDetailView,
 
 )
 
 urlpatterns = [
     path('', ActivityListView.as_view(), name='activity-list'),
     path('create/', ActivityCreateView.as_view(), name='activity-create'),
-
+    path(
+        "<int:pk>/",
+        ActivityDetailView.as_view(),
+        name="activity-detail"
+),
     path(
         '<int:pk>/join/',
         JoinActivityView.as_view(),
@@ -38,38 +43,39 @@ urlpatterns = [
     ),
 
     path(
-    "my-total-hours/",
-    MyTotalHoursView.as_view(),
-    name="my-total-hours",
+        "my-total-hours/",
+        MyTotalHoursView.as_view(),
+        name="my-total-hours",
 ),
     path(
-    'daily-logs/',
-    DailyActivityLogListCreateView.as_view(),
-    name='daily-logs'
+        'daily-logs/',
+        DailyActivityLogListCreateView.as_view(),
+        name='daily-logs'
 ),
     path(
-    'daily-logs/statistics/',
-    DailyActivityStatisticsView.as_view(),
-    name='daily-log-statistics'
+       'daily-logs/statistics/',
+       DailyActivityStatisticsView.as_view(),
+       name='daily-log-statistics'
 ),
     path(
-    "daily-logs/report/",
-    DailyActivityReportView.as_view(),
-    name="daily-log-report",
+       "daily-logs/report/",
+       DailyActivityReportView.as_view(),
+       name="daily-log-report",
 ),
     path(
-    "volunteer-hours-report/",
-    VolunteerHoursReportView.as_view(),
-    name="volunteer-hours-report",
+       "volunteer-hours-report/",
+       VolunteerHoursReportView.as_view(),
+       name="volunteer-hours-report",
 ),
     path(
-    "dashboard/",
-    DashboardStatisticsView.as_view(),
-    name="dashboard",
+       "dashboard/",
+       DashboardStatisticsView.as_view(),
+       name="dashboard",
 ),
     path(
-    "organizations-report/",
-    OrganizationsReportView.as_view(),
-    name="organizations-report",
+       "organizations-report/",
+       OrganizationsReportView.as_view(),
+       name="organizations-report",
 ),
+
 ]

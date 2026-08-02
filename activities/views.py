@@ -3,14 +3,13 @@ from .models import Activity
 from .serializers import ActivitySerializer
 from .permissions import IsAdminOrSupervisor
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
-from .models import Activity, Participation, VolunteerAttendance
 from rest_framework.generics import ListAPIView
-from rest_framework.permissions import IsAuthenticated
-from .models import Participation
+from .permissions import (
+    IsAdminOrSupervisorOrOrganization,
+)
 from .serializers import (
     ActivitySerializer,
     ParticipationSerializer,
@@ -24,9 +23,46 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from django.contrib.auth import get_user_model
 from organizations.models import Organization
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from organizations.authentication import OrganizationJWTAuthentication
+from .models import (
+    Activity,
+    Participation,
+    VolunteerAttendance,
+    DailyActivityLog,
+)
 
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from organizations.authentication import OrganizationJWTAuthentication
 
 User = get_user_model()
+
+
+
+
+class ActivityDetailView(APIView):
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+        JWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+
+        try:
+            activity = Activity.objects.get(id=pk)
+
+        except Activity.DoesNotExist:
+            return Response(
+                {"message": "Activity not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ActivitySerializer(activity)
+
+        return Response(serializer.data)
 
 
 # عرض جميع الأنشطة
@@ -34,15 +70,57 @@ class ActivityListView(generics.ListAPIView):
 
     queryset = Activity.objects.all()
     serializer_class = ActivitySerializer
+
+    authentication_classes = [
+    OrganizationJWTAuthentication,
+    JWTAuthentication,
+]
+
     permission_classes = [IsAuthenticated]
 
 
-# إنشاء نشاط
+
+
 class ActivityCreateView(generics.CreateAPIView):
 
     queryset = Activity.objects.all()
     serializer_class = ActivitySerializer
-    permission_classes = [IsAdminOrSupervisor]
+
+    authentication_classes = [
+        JWTAuthentication,
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [
+        IsAdminOrSupervisorOrOrganization
+    ]
+
+    def perform_create(self, serializer):
+
+        organization_id = None
+
+        if self.request.auth:
+            organization_id = self.request.auth.get("organization_id")
+
+        if organization_id:
+            try:
+                organization = Organization.objects.get(
+                    id=organization_id,
+                    status="approved",
+                    verified=True
+                )
+
+                serializer.save(
+                    organization=organization
+                )
+
+            except Organization.DoesNotExist:
+                raise ValidationError(
+                    "Organization is not approved."
+                )
+
+        else:
+            serializer.save()
 
 
 class JoinActivityView(APIView):
@@ -50,16 +128,39 @@ class JoinActivityView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
+
         user = request.user
 
         try:
             activity = Activity.objects.get(id=pk)
+
         except Activity.DoesNotExist:
             return Response(
                 {"message": "Activity not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # منع التسجيل إذا كانت الفرصة مغلقة
+        if activity.status == "closed":
+            return Response(
+                {
+                    "message": "This activity is closed."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # منع التسجيل بعد انتهاء موعد التسجيل
+        if activity.registration_deadline < timezone.now().date():
+
+            activity.status = "closed"
+            activity.save()
+
+            return Response(
+                {
+                    "message": "Registration deadline has passed."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # منع التسجيل مرتين
         if Participation.objects.filter(
@@ -67,40 +168,52 @@ class JoinActivityView(APIView):
             activity=activity
         ).exists():
             return Response(
-                {"message": "Already joined"},
+                {
+                    "message": "Already joined"
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
 
         # منع تجاوز العدد
-        current_participants = Participation.objects.filter(
-            activity=activity
-        ).count()
+        if activity.applicants_count >= activity.volunteer_limit:
 
-        if current_participants >= activity.volunteer_limit:
+            activity.status = "closed"
+            activity.save()
+
             return Response(
-                {"message": "Activity volunteer limit reached"},
+                {
+                    "message": "Activity volunteer limit reached"
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
 
         # منع التسجيل بعد انتهاء النشاط
-        from django.utils import timezone
-
         if activity.end_date < timezone.now().date():
             return Response(
-                {"message": "Activity has already ended"},
+                {
+                    "message": "Activity has already ended"
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
-
 
         Participation.objects.create(
             user=user,
             activity=activity
         )
 
+        activity.applicants_count += 1
+
+        if activity.applicants_count >= activity.volunteer_limit:
+            activity.status = "closed"
+
+        activity.save()
+
         return Response(
-            {"message": "Joined successfully"},
+            {
+                "message": "Joined successfully",
+                "applicants_count": activity.applicants_count,
+                "status": activity.status
+            },
             status=status.HTTP_201_CREATED
         )
 
@@ -326,3 +439,4 @@ class OrganizationsReportView(APIView):
             })
 
         return Response(report)
+

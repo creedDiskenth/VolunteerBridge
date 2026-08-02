@@ -12,6 +12,11 @@ class Activity(models.Model):
         ('community', 'Community'),
     )
 
+    STATUS_CHOICES = (
+        ('active', 'Active'),
+        ('closed', 'Closed'),
+    )
+
     title = models.CharField(max_length=255)
 
     description = models.TextField()
@@ -41,15 +46,33 @@ class Activity(models.Model):
         default='2026-05-30'
     )
 
+    registration_deadline = models.DateField(
+        null=True,
+        blank=True
+    )
+
     volunteer_limit = models.PositiveIntegerField(
         default=20
+    )
+
+    applicants_count = models.PositiveIntegerField(
+        default=0
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='active'
     )
 
     hours = models.PositiveIntegerField(
         default=5
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
 
     def __str__(self):
         return self.title

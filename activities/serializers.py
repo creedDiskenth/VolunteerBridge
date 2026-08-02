@@ -4,9 +4,14 @@ from .models import Activity, Participation, VolunteerAttendance
 
 
 class ActivitySerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Activity
-        fields = '__all__'
+        fields = "__all__"
+        read_only_fields = [
+            "organization",
+            "applicants_count",
+        ]
 
 
 class ParticipationSerializer(serializers.ModelSerializer):
