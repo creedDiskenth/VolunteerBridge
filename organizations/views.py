@@ -10,6 +10,9 @@ from .serializers import (
     OrganizationTokenSerializer,
 )
 
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from organizations.authentication import OrganizationJWTAuthentication
+from organizations.models import Organization
 from activities.permissions import IsAdminOrSupervisor
 
 
@@ -50,11 +53,44 @@ class OrganizationListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated()]
 
 
+
+
 class OrganizationDetailView(generics.RetrieveUpdateDestroyAPIView):
 
-    queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
-    permission_classes = [IsAdminOrSupervisor]
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+        JWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        # إذا كان المستخدم مؤسسة
+        if hasattr(self.request.user, "email") and isinstance(
+            self.request.user, Organization
+        ):
+            return Organization.objects.filter(
+                id=self.request.user.id
+            )
+
+        # إذا كان المستخدم أدمن أو مشرف
+        if (
+            self.request.user.is_authenticated
+            and (
+                self.request.user.is_staff
+                or self.request.user.role == "supervisor"
+            )
+        ):
+            return Organization.objects.all()
+
+        return Organization.objects.none()
+
+
+
+
 
 class OrganizationRegisterView(generics.CreateAPIView):
 

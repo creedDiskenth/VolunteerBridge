@@ -15,14 +15,34 @@ class ActivitySerializer(serializers.ModelSerializer):
 
 
 class ParticipationSerializer(serializers.ModelSerializer):
+
     activity_title = serializers.CharField(
-        source='activity.title',
+        source="activity.title",
+        read_only=True
+    )
+
+    student_name = serializers.CharField(
+        source="user.username",
+        read_only=True
+    )
+
+    university_id = serializers.CharField(
+        source="user.university_id",
         read_only=True
     )
 
     class Meta:
         model = Participation
-        fields = '__all__'
+        fields = [
+            "id",
+            "user",
+            "student_name",
+            "university_id",
+            "activity",
+            "activity_title",
+            "status",
+            "joined_at",
+        ]
 
 
 class VolunteerAttendanceSerializer(serializers.ModelSerializer):

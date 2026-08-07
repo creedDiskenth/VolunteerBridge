@@ -6,11 +6,11 @@ from organizations.models import Organization
 class Activity(models.Model):
 
     CATEGORY_CHOICES = (
-        ('environment', 'Environment'),
-        ('health', 'Health'),
-        ('education', 'Education'),
-        ('community', 'Community'),
-    )
+        ('technical', 'Technical'),
+        ('medical', 'Medical'),
+        ('educational', 'Educational'),
+        ('administrative', 'Administrative'),
+)
 
     STATUS_CHOICES = (
         ('active', 'Active'),
@@ -30,7 +30,7 @@ class Activity(models.Model):
     category = models.CharField(
         max_length=50,
         choices=CATEGORY_CHOICES,
-        default='community'
+        default='technical'
     )
 
     location = models.CharField(
@@ -93,10 +93,16 @@ class Participation(models.Model):
 
     joined_at = models.DateTimeField(auto_now_add=True)
 
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+)
     status = models.CharField(
         max_length=20,
-        default='joined'
-    )
+        choices=STATUS_CHOICES,
+        default='pending'
+)
 
     class Meta:
         unique_together = ('user', 'activity')

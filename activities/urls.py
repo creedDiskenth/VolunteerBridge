@@ -13,12 +13,48 @@ from .views import (
     DashboardStatisticsView,
     OrganizationsReportView,
     ActivityDetailView,
-
+    MyOrganizationActivitiesView,
+    MyOrganizationApplicationsView,
+    ActivityApplicationsView,
+    ActivityUpdateView,
+    ApproveParticipationView,
+    RejectParticipationView,
 )
 
 urlpatterns = [
     path('', ActivityListView.as_view(), name='activity-list'),
     path('create/', ActivityCreateView.as_view(), name='activity-create'),
+    path(
+        "my-activities/",
+        MyOrganizationActivitiesView.as_view(),
+        name="my-activities",
+),
+    path(
+        "my-applications/",
+        MyOrganizationApplicationsView.as_view(),
+        name="my-applications",
+),
+    path(
+        "<int:pk>/applications/",
+        ActivityApplicationsView.as_view(),
+        name="activity-applications",
+),
+    path(
+        "<int:pk>/update/",
+        ActivityUpdateView.as_view(),
+        name="activity-update",
+),
+    path(
+        "participations/<int:pk>/approve/",
+        ApproveParticipationView.as_view(),
+        name="approve-participation",
+),
+
+    path(
+        "participations/<int:pk>/reject/",
+        RejectParticipationView.as_view(),
+        name="reject-participation",
+),
     path(
         "<int:pk>/",
         ActivityDetailView.as_view(),
@@ -77,5 +113,6 @@ urlpatterns = [
        OrganizationsReportView.as_view(),
        name="organizations-report",
 ),
+
 
 ]

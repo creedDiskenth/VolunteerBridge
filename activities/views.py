@@ -1,30 +1,18 @@
-from rest_framework import generics
-from .models import Activity
-from .serializers import ActivitySerializer
-from .permissions import IsAdminOrSupervisor
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Sum
+from django.utils import timezone
+
+from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
+from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.views import APIView
-from rest_framework.generics import ListAPIView
-from .permissions import (
-    IsAdminOrSupervisorOrOrganization,
-)
-from .serializers import (
-    ActivitySerializer,
-    ParticipationSerializer,
-    VolunteerAttendanceSerializer,
-    DailyActivityLogSerializer,
-)
-from django.db.models import Sum
-from .models import DailyActivityLog
-from django.db.models import Count
-from django.utils import timezone
-from rest_framework.exceptions import ValidationError
-from django.contrib.auth import get_user_model
-from organizations.models import Organization
 from rest_framework_simplejwt.authentication import JWTAuthentication
+
 from organizations.authentication import OrganizationJWTAuthentication
+from organizations.models import Organization
+
 from .models import (
     Activity,
     Participation,
@@ -32,11 +20,88 @@ from .models import (
     DailyActivityLog,
 )
 
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from organizations.authentication import OrganizationJWTAuthentication
+from .permissions import (
+    IsAdminOrSupervisor,
+    IsAdminOrSupervisorOrOrganization,
+)
+
+from .serializers import (
+    ActivitySerializer,
+    ParticipationSerializer,
+    VolunteerAttendanceSerializer,
+    DailyActivityLogSerializer,
+)
 
 User = get_user_model()
 
+
+
+class MyOrganizationActivitiesView(ListAPIView):
+
+    serializer_class = ActivitySerializer
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        organization_id = self.request.auth.get(
+            "organization_id"
+        )
+
+        return Activity.objects.filter(
+            organization_id=organization_id
+        ).order_by("-created_at")
+
+
+
+class ActivityApplicationsView(ListAPIView):
+
+    serializer_class = ParticipationSerializer
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        organization_id = self.request.auth.get(
+            "organization_id"
+        )
+
+        activity_id = self.kwargs["pk"]
+
+        return Participation.objects.filter(
+            activity_id=activity_id,
+            activity__organization_id=organization_id
+        ).order_by("-joined_at")
+
+
+
+class MyOrganizationApplicationsView(ListAPIView):
+
+    serializer_class = ParticipationSerializer
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        organization_id = self.request.auth.get(
+            "organization_id"
+        )
+
+        return Participation.objects.filter(
+            activity__organization_id=organization_id
+        ).order_by("-joined_at")
 
 
 
@@ -68,16 +133,35 @@ class ActivityDetailView(APIView):
 # عرض جميع الأنشطة
 class ActivityListView(generics.ListAPIView):
 
-    queryset = Activity.objects.all()
     serializer_class = ActivitySerializer
 
     authentication_classes = [
-    OrganizationJWTAuthentication,
-    JWTAuthentication,
-]
+        OrganizationJWTAuthentication,
+        JWTAuthentication,
+    ]
 
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+
+        queryset = Activity.objects.all()
+
+        status = self.request.query_params.get("status")
+        category = self.request.query_params.get("category")
+        org_type = self.request.query_params.get("type")
+
+        if status:
+            queryset = queryset.filter(status=status)
+
+        if category:
+            queryset = queryset.filter(category=category)
+
+        if org_type:
+            queryset = queryset.filter(
+                organization__category=org_type
+            )
+
+        return queryset.order_by("-created_at")
 
 
 
@@ -198,8 +282,9 @@ class JoinActivityView(APIView):
 
         Participation.objects.create(
             user=user,
-            activity=activity
-        )
+            activity=activity,
+            status="pending"
+)
 
         activity.applicants_count += 1
 
@@ -440,3 +525,90 @@ class OrganizationsReportView(APIView):
 
         return Response(report)
 
+
+
+class ActivityUpdateView(generics.UpdateAPIView):
+
+    serializer_class = ActivitySerializer
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        organization_id = self.request.auth.get(
+            "organization_id"
+        )
+
+        return Activity.objects.filter(
+            organization_id=organization_id
+        )
+
+
+
+class ApproveParticipationView(APIView):
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+
+        organization_id = request.auth.get("organization_id")
+
+        try:
+            participation = Participation.objects.get(
+                id=pk,
+                activity__organization_id=organization_id
+            )
+
+        except Participation.DoesNotExist:
+            return Response(
+                {"message": "Participation not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        participation.status = "approved"
+        participation.save()
+
+        return Response({
+            "message": "Participation approved successfully."
+        })
+
+
+
+class RejectParticipationView(APIView):
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+
+        organization_id = request.auth.get("organization_id")
+
+        try:
+            participation = Participation.objects.get(
+                id=pk,
+                activity__organization_id=organization_id
+            )
+
+        except Participation.DoesNotExist:
+            return Response(
+                {"message": "Participation not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        participation.status = "rejected"
+        participation.save()
+
+        return Response({
+            "message": "Participation rejected successfully."
+        })
