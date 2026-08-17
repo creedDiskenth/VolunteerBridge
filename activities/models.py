@@ -1,7 +1,7 @@
 from django.db import models
 from django.conf import settings
 from organizations.models import Organization
-
+from django.core.validators import MinValueValidator, MaxValueValidator
 
 class Activity(models.Model):
 
@@ -66,8 +66,9 @@ class Activity(models.Model):
     )
 
     hours = models.PositiveIntegerField(
-        default=5
-    )
+        default=60,
+
+)
 
     created_at = models.DateTimeField(
         auto_now_add=True
@@ -76,6 +77,26 @@ class Activity(models.Model):
 
     def __str__(self):
         return self.title
+
+
+
+
+class ActivitySettings(models.Model):
+
+    minimum_hours = models.PositiveIntegerField(
+        default=60
+    )
+
+    maximum_hours = models.PositiveIntegerField(
+        default=120
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True
+    )
+
+    def __str__(self):
+        return f"Activity Hours: {self.minimum_hours} - {self.maximum_hours}"
 
 
 class Participation(models.Model):
@@ -97,6 +118,7 @@ class Participation(models.Model):
         ('pending', 'Pending'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
+        ('cancelled', 'Cancelled'),
 )
     status = models.CharField(
         max_length=20,

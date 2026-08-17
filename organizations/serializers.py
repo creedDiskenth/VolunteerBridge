@@ -61,8 +61,10 @@ class OrganizationTokenSerializer(TokenObtainPairSerializer):
                 "Invalid credentials"
             )
 
-
-        if not check_password(password, organization.password):
+        if not check_password(
+            password,
+            organization.password
+        ):
             raise serializers.ValidationError(
                 "Invalid credentials"
             )
@@ -74,12 +76,18 @@ class OrganizationTokenSerializer(TokenObtainPairSerializer):
 
         refresh = RefreshToken()
 
+        # Organization information
         refresh["organization_id"] = organization.id
         refresh["organization_name"] = organization.name
+
+        # مهم جدًا:
+        # JWTAuthentication يحتاج user_id
+        refresh["user_id"] = organization.id
 
         return {
             "refresh": str(refresh),
             "access": str(refresh.access_token),
+
             "organization": {
                 "id": organization.id,
                 "name": organization.name,
@@ -87,5 +95,5 @@ class OrganizationTokenSerializer(TokenObtainPairSerializer):
                 "category": organization.category,
                 "verified": organization.verified,
                 "status": organization.status,
-    }
-}
+            }
+        }

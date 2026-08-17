@@ -1,6 +1,65 @@
 from rest_framework import serializers
 from .models import DailyActivityLog
 from .models import Activity, Participation, VolunteerAttendance
+from .models import (
+    Activity,
+    Participation,
+    VolunteerAttendance,
+    DailyActivityLog,
+    ActivitySettings,
+)
+from rest_framework import serializers
+from .models import Activity, ActivitySettings
+
+
+class ActivitySettingsSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ActivitySettings
+        fields = [
+            "minimum_hours",
+            "maximum_hours",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "minimum_hours",
+            "updated_at",
+        ]
+
+
+
+# class ActivitySerializer(serializers.ModelSerializer):
+
+#     class Meta:
+#         model = Activity
+#         fields = "__all__"
+#         read_only_fields = [
+#             "organization",
+#             "applicants_count",
+#         ]
+
+#     def validate_hours(self, value):
+
+#         settings = ActivitySettings.objects.first()
+
+#         if not settings:
+#             minimum_hours = 60
+#             maximum_hours = 120
+#         else:
+#             minimum_hours = settings.minimum_hours
+#             maximum_hours = settings.maximum_hours
+
+#         if value < minimum_hours:
+#             raise serializers.ValidationError(
+#                 f"Activity hours cannot be less than {minimum_hours}."
+#             )
+
+#         if value > maximum_hours:
+#             raise serializers.ValidationError(
+#                 f"Activity hours cannot exceed {maximum_hours}."
+#             )
+
+#         return value
 
 
 class ActivitySerializer(serializers.ModelSerializer):
@@ -12,6 +71,11 @@ class ActivitySerializer(serializers.ModelSerializer):
             "organization",
             "applicants_count",
         ]
+
+
+
+
+
 
 
 class ParticipationSerializer(serializers.ModelSerializer):

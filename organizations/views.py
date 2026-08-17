@@ -9,7 +9,13 @@ from .serializers import (
     OrganizationRegisterSerializer,
     OrganizationTokenSerializer,
 )
-
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from organizations.models import Organization
+from organizations.serializers import OrganizationSerializer
+from organizations.authentication import OrganizationJWTAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from organizations.authentication import OrganizationJWTAuthentication
 from organizations.models import Organization
@@ -155,14 +161,37 @@ class RejectOrganizationView(APIView):
 class OrganizationProfileView(APIView):
 
     authentication_classes = [
-        OrganizationJWTAuthentication
+        OrganizationJWTAuthentication,
     ]
 
-    permission_classes = []
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
-        organization = request.user
+        organization_id = request.auth.get(
+            "organization_id"
+        )
+
+        if not organization_id:
+            return Response(
+                {
+                    "detail": "Organization authentication required."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            organization = Organization.objects.get(
+                id=organization_id
+            )
+
+        except Organization.DoesNotExist:
+            return Response(
+                {
+                    "detail": "Organization not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         serializer = OrganizationSerializer(
             organization

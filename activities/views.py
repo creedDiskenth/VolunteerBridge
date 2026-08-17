@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Sum
 from django.utils import timezone
-
+from .models import ActivitySettings
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
@@ -9,7 +9,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
+from .serializers import (
+    ActivitySerializer,
+    ParticipationSerializer,
+    VolunteerAttendanceSerializer,
+    DailyActivityLogSerializer,
+    ActivitySettingsSerializer,
+)
 from organizations.authentication import OrganizationJWTAuthentication
 from organizations.models import Organization
 
@@ -33,6 +39,27 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+def get_activity_settings():
+    settings = ActivitySettings.objects.first()
+
+    if not settings:
+        settings = ActivitySettings.objects.create(
+            minimum_hours=60,
+            maximum_hours=120
+        )
+
+    return settings
+
+
+
+class ActivitySettingsView(generics.RetrieveUpdateAPIView):
+
+    serializer_class = ActivitySettingsSerializer
+    permission_classes = [IsAdminOrSupervisor]
+
+    def get_object(self):
+        return get_activity_settings()
 
 
 
@@ -116,6 +143,17 @@ class ActivityDetailView(APIView):
 
     def get(self, request, pk):
 
+        today = timezone.now().date()
+
+        # إغلاق النشاط إذا انتهت مدته
+        Activity.objects.filter(
+            id=pk,
+            end_date__lt=today,
+            status="active"
+        ).update(
+            status="closed"
+        )
+
         try:
             activity = Activity.objects.get(id=pk)
 
@@ -144,14 +182,24 @@ class ActivityListView(generics.ListAPIView):
 
     def get_queryset(self):
 
+        today = timezone.now().date()
+
+        # إغلاق الأنشطة التي انتهت مدتها
+        Activity.objects.filter(
+            end_date__lt=today,
+            status="active"
+        ).update(
+            status="closed"
+        )
+
         queryset = Activity.objects.all()
 
-        status = self.request.query_params.get("status")
+        status_filter = self.request.query_params.get("status")
         category = self.request.query_params.get("category")
         org_type = self.request.query_params.get("type")
 
-        if status:
-            queryset = queryset.filter(status=status)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
 
         if category:
             queryset = queryset.filter(category=category)
@@ -165,46 +213,85 @@ class ActivityListView(generics.ListAPIView):
 
 
 
+
 class ActivityCreateView(generics.CreateAPIView):
 
-    queryset = Activity.objects.all()
     serializer_class = ActivitySerializer
 
     authentication_classes = [
-        JWTAuthentication,
         OrganizationJWTAuthentication,
+        JWTAuthentication,
     ]
 
-    permission_classes = [
-        IsAdminOrSupervisorOrOrganization
-    ]
+    permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
 
-        organization_id = None
+        user = request.user
+        user_role = getattr(user, "role", None)
 
-        if self.request.auth:
-            organization_id = self.request.auth.get("organization_id")
+        # =========================================
+        # Admin / Supervisor
+        # =========================================
 
-        if organization_id:
-            try:
-                organization = Organization.objects.get(
-                    id=organization_id,
-                    status="approved",
-                    verified=True
-                )
+        if (
+            user.is_authenticated
+            and user_role in ["admin", "supervisor"]
+        ):
+            serializer = self.get_serializer(
+                data=request.data
+            )
 
-                serializer.save(
-                    organization=organization
-                )
+            serializer.is_valid(raise_exception=True)
 
-            except Organization.DoesNotExist:
-                raise ValidationError(
-                    "Organization is not approved."
-                )
-
-        else:
             serializer.save()
+
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+
+        # =========================================
+        # Organization
+        # =========================================
+
+        if request.auth:
+
+            organization_id = request.auth.get(
+                "organization_id"
+            )
+
+            if organization_id:
+
+                serializer = self.get_serializer(
+                    data=request.data
+                )
+
+                serializer.is_valid(raise_exception=True)
+
+                # المؤسسة تصبح مالكة للفرصة تلقائيًا
+                serializer.save(
+                    organization_id=organization_id
+                )
+
+                return Response(
+                    serializer.data,
+                    status=status.HTTP_201_CREATED
+                )
+
+        # =========================================
+        # Unauthorized
+        # =========================================
+
+        return Response(
+            {
+                "detail": (
+                    "Only admin, supervisor, or "
+                    "organization can create activities."
+                )
+            },
+            status=status.HTTP_403_FORBIDDEN
+        )
 
 
 class JoinActivityView(APIView):
@@ -220,24 +307,25 @@ class JoinActivityView(APIView):
 
         except Activity.DoesNotExist:
             return Response(
-                {"message": "Activity not found"},
+                {
+                    "message": "Activity not found"
+                },
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # منع التسجيل إذا كانت الفرصة مغلقة
-        if activity.status == "closed":
-            return Response(
-                {
-                    "message": "This activity is closed."
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        today = timezone.now().date()
 
-        # منع التسجيل بعد انتهاء موعد التسجيل
-        if activity.registration_deadline < timezone.now().date():
+        # =====================================================
+        # 1. تحديث حالة الفرصة بناءً على موعد التسجيل
+        # =====================================================
 
-            activity.status = "closed"
-            activity.save()
+        if (
+            activity.registration_deadline
+            and activity.registration_deadline < today
+        ):
+            if activity.status != "closed":
+                activity.status = "closed"
+                activity.save(update_fields=["status"])
 
             return Response(
                 {
@@ -246,23 +334,70 @@ class JoinActivityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # منع التسجيل مرتين
-        if Participation.objects.filter(
-            user=user,
-            activity=activity
-        ).exists():
+        # =====================================================
+        # 2. إذا تم تمديد موعد التسجيل
+        #    وكانت الفرصة Closed بسبب انتهاء الموعد
+        # =====================================================
+
+        if (
+            activity.status == "closed"
+            and activity.registration_deadline
+            and activity.registration_deadline >= today
+        ):
+            activity.status = "active"
+            activity.save(update_fields=["status"])
+
+        # =====================================================
+        # 3. منع التسجيل إذا كانت الفرصة مغلقة
+        #    لسبب آخر
+        # =====================================================
+
+        if activity.status == "closed":
             return Response(
                 {
-                    "message": "Already joined"
+                    "message": "This activity is closed."
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # منع تجاوز العدد
+        # =====================================================
+        # 4. منع التسجيل بعد انتهاء النشاط
+        # =====================================================
+
+        if activity.end_date < today:
+            return Response(
+                {
+                    "message": "Activity has already ended"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # 5. منع التسجيل مرتين
+        # =====================================================
+
+        existing_participation = Participation.objects.filter(
+            user=user,
+            activity=activity
+        ).first()
+
+        if existing_participation:
+            return Response(
+                {
+                    "message": "Already joined",
+                    "status": existing_participation.status
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # 6. التأكد من وجود مقاعد
+        # =====================================================
+
         if activity.applicants_count >= activity.volunteer_limit:
 
             activity.status = "closed"
-            activity.save()
+            activity.save(update_fields=["status"])
 
             return Response(
                 {
@@ -271,36 +406,26 @@ class JoinActivityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # منع التسجيل بعد انتهاء النشاط
-        if activity.end_date < timezone.now().date():
-            return Response(
-                {
-                    "message": "Activity has already ended"
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # =====================================================
+        # 7. إنشاء طلب Pending
+        # =====================================================
 
         Participation.objects.create(
             user=user,
             activity=activity,
             status="pending"
-)
-
-        activity.applicants_count += 1
-
-        if activity.applicants_count >= activity.volunteer_limit:
-            activity.status = "closed"
-
-        activity.save()
+        )
 
         return Response(
             {
-                "message": "Joined successfully",
+                "message": "Join request submitted successfully",
+                "status": "pending",
                 "applicants_count": activity.applicants_count,
-                "status": activity.status
+                "activity_status": activity.status
             },
             status=status.HTTP_201_CREATED
         )
+
 
 class MyParticipationsView(ListAPIView):
 
@@ -527,25 +652,6 @@ class OrganizationsReportView(APIView):
 
 
 
-class ActivityUpdateView(generics.UpdateAPIView):
-
-    serializer_class = ActivitySerializer
-
-    authentication_classes = [
-        OrganizationJWTAuthentication,
-    ]
-
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-
-        organization_id = self.request.auth.get(
-            "organization_id"
-        )
-
-        return Activity.objects.filter(
-            organization_id=organization_id
-        )
 
 
 
@@ -562,7 +668,9 @@ class ApproveParticipationView(APIView):
         organization_id = request.auth.get("organization_id")
 
         try:
-            participation = Participation.objects.get(
+            participation = Participation.objects.select_related(
+                "activity"
+            ).get(
                 id=pk,
                 activity__organization_id=organization_id
             )
@@ -573,14 +681,74 @@ class ApproveParticipationView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        activity = participation.activity
+
+        # ==========================================
+        # منع قبول الطلب أكثر من مرة
+        # ==========================================
+
+        if participation.status == "approved":
+            return Response(
+                {
+                    "message": "Participation is already approved.",
+                    "applicants_count": activity.applicants_count
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # التأكد من وجود مقعد
+        # ==========================================
+
+        if activity.applicants_count >= activity.volunteer_limit:
+
+            activity.status = "closed"
+            activity.save(update_fields=["status"])
+
+            return Response(
+                {
+                    "message": "Activity volunteer limit reached.",
+                    "applicants_count": activity.applicants_count,
+                    "volunteer_limit": activity.volunteer_limit
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # قبول الطالب
+        # ==========================================
+
         participation.status = "approved"
-        participation.save()
+        participation.save(update_fields=["status"])
 
-        return Response({
-            "message": "Participation approved successfully."
-        })
+        # ==========================================
+        # حجز مقعد للطالب
+        # ==========================================
 
+        activity.applicants_count += 1
 
+        # إذا امتلأت المقاعد تغلق الفرصة
+        if activity.applicants_count >= activity.volunteer_limit:
+            activity.status = "closed"
+
+        activity.save(
+            update_fields=[
+                "applicants_count",
+                "status"
+            ]
+        )
+
+        return Response(
+            {
+                "message": "Participation approved successfully.",
+                "participation_id": participation.id,
+                "status": participation.status,
+                "applicants_count": activity.applicants_count,
+                "volunteer_limit": activity.volunteer_limit,
+                "activity_status": activity.status
+            },
+            status=status.HTTP_200_OK
+        )
 
 class RejectParticipationView(APIView):
 
@@ -612,3 +780,228 @@ class RejectParticipationView(APIView):
         return Response({
             "message": "Participation rejected successfully."
         })
+
+
+
+class ActivityUpdateView(generics.UpdateAPIView):
+
+    serializer_class = ActivitySerializer
+
+    authentication_classes = [
+        OrganizationJWTAuthentication,
+        JWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+
+        user = self.request.user
+        user_role = getattr(user, "role", None)
+
+        # Admin / Supervisor
+        if (
+            user.is_authenticated
+            and user_role in ["admin", "supervisor"]
+        ):
+            return Activity.objects.all()
+
+        # Organization
+        if self.request.auth:
+
+            organization_id = self.request.auth.get(
+                "organization_id"
+            )
+
+            if organization_id:
+                return Activity.objects.filter(
+                    organization_id=organization_id
+                )
+
+        return Activity.objects.none()
+
+    def update(self, request, *args, **kwargs):
+
+        # =====================================================
+        # 1. التحقق من عدد الساعات
+        # المسموح من 60 إلى maximum_hours
+        # =====================================================
+
+        if "hours" in request.data:
+
+            try:
+                hours = int(request.data["hours"])
+
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "detail": "Hours must be a valid number."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            settings = ActivitySettings.objects.first()
+
+            if settings:
+
+                # الحد الأدنى
+                if hours < 60:
+                    return Response(
+                        {
+                            "detail": (
+                                "Activity hours cannot be less than 60."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # الحد الأقصى
+                if hours > settings.maximum_hours:
+                    return Response(
+                        {
+                            "detail": (
+                                f"Activity hours cannot exceed "
+                                f"{settings.maximum_hours} hours."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+        # =====================================================
+        # 2. تمديد موعد التسجيل
+        # إذا كانت الفرصة Closed وتم تمديد الموعد
+        # ترجع Active تلقائيًا
+        # =====================================================
+
+        if "registration_deadline" in request.data:
+
+            new_deadline = request.data.get(
+                "registration_deadline"
+            )
+
+            if new_deadline:
+
+                try:
+                    new_deadline = datetime.strptime(
+                        new_deadline,
+                        "%Y-%m-%d"
+                    ).date()
+
+                except (TypeError, ValueError):
+                    return Response(
+                        {
+                            "detail": (
+                                "registration_deadline must be "
+                                "in YYYY-MM-DD format."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                today = timezone.now().date()
+
+                # إذا الموعد الجديد ما زال صالحًا
+                # نعيد الفرصة إلى Active
+                if new_deadline >= today:
+
+                    request.data._mutable = True
+
+                    request.data["status"] = "active"
+
+                    request.data._mutable = False
+
+        return super().update(
+            request,
+            *args,
+            **kwargs
+        )
+
+
+
+class CancelParticipationView(APIView):
+
+    authentication_classes = [
+        JWTAuthentication,
+    ]
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+
+        user = request.user
+
+        try:
+            participation = Participation.objects.select_related(
+                "activity"
+            ).get(
+                id=pk,
+                user=user
+            )
+
+        except Participation.DoesNotExist:
+            return Response(
+                {
+                    "message": "Participation not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        activity = participation.activity
+
+        # ==========================================
+        # لا يمكن إلغاء طلب ملغي مسبقاً
+        # ==========================================
+
+        if participation.status == "cancelled":
+            return Response(
+                {
+                    "message": "Participation is already cancelled."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # ==========================================
+        # إذا كان الطالب مقبولاً
+        # نرجع المقعد للفرصة
+        # ==========================================
+
+        if participation.status == "approved":
+
+            if activity.applicants_count > 0:
+                activity.applicants_count -= 1
+
+            # إذا كانت الفرصة أغلقت بسبب امتلاء المقاعد
+            # وكان موعد التسجيل ما زال صالحاً، نعيدها Active
+            today = timezone.now().date()
+
+            if (
+                activity.registration_deadline
+                and activity.registration_deadline >= today
+                and activity.end_date >= today
+            ):
+                activity.status = "active"
+
+            activity.save(
+                update_fields=[
+                    "applicants_count",
+                    "status"
+                ]
+            )
+
+        # ==========================================
+        # إلغاء الطلب
+        # ==========================================
+
+        participation.status = "cancelled"
+        participation.save(update_fields=["status"])
+
+        return Response(
+            {
+                "message": "Participation cancelled successfully.",
+                "participation_id": participation.id,
+                "status": participation.status,
+                "applicants_count": activity.applicants_count,
+                "activity_status": activity.status
+            },
+            status=status.HTTP_200_OK
+        )

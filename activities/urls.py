@@ -19,6 +19,8 @@ from .views import (
     ActivityUpdateView,
     ApproveParticipationView,
     RejectParticipationView,
+    ActivitySettingsView,
+    CancelParticipationView,
 )
 
 urlpatterns = [
@@ -112,6 +114,16 @@ urlpatterns = [
        "organizations-report/",
        OrganizationsReportView.as_view(),
        name="organizations-report",
+),
+    path(
+       "settings/",
+       ActivitySettingsView.as_view(),
+       name="activity-settings",
+),
+   path(
+      "participations/<int:pk>/cancel/",
+      CancelParticipationView.as_view(),
+      name="cancel-participation"
 ),
 
 
