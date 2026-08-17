@@ -44,7 +44,7 @@ class OrganizationRegisterSerializer(serializers.ModelSerializer):
 
 class OrganizationTokenSerializer(TokenObtainPairSerializer):
 
-    username_field = 'email'
+    username_field = "email"
 
     def validate(self, attrs):
 
@@ -76,18 +76,12 @@ class OrganizationTokenSerializer(TokenObtainPairSerializer):
 
         refresh = RefreshToken()
 
-        # Organization information
         refresh["organization_id"] = organization.id
         refresh["organization_name"] = organization.name
-
-        # مهم جدًا:
-        # JWTAuthentication يحتاج user_id
-        refresh["user_id"] = organization.id
 
         return {
             "refresh": str(refresh),
             "access": str(refresh.access_token),
-
             "organization": {
                 "id": organization.id,
                 "name": organization.name,
